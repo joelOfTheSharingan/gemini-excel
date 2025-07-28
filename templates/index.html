@@ -1,0 +1,57 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Bank Statement Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        form {
+            margin: 20px 0;
+        }
+        input[type="file"] {
+            margin-right: 10px;
+        }
+        input[type="submit"] {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Upload Your Bank Statement (.txt)</h1>
+    <form method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".txt" required>
+        <input type="submit" value="Upload and Convert">
+    </form>
+    {% if file_uploaded %}
+        <p class="success">File uploaded successfully!</p>
+    {% endif %}
+    {% if download_ready %}
+        <p class="success">File processed successfully! <a href="/download/{{ output_filename }}">Download Categorized_Statement.xlsx</a></p>
+    {% endif %}
+    {% if error_message %}
+        <p class="error">Error: {{ error_message }}</p>
+    {% endif %}
+</body>
+</html>
