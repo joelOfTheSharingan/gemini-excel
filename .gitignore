@@ -3,5 +3,6 @@ __pycache__/
 .env
 *.xlsx
 *.txt
+!requirements.txt
 static/download/
 venv/
