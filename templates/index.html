@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -251,6 +250,7 @@
             const consoleOutput = document.getElementById('console-output');
 
             let allCategories = [];
+            let allTransactions = []; // Store the entire dataset here
 
             function logMessage(message, type = 'info') {
                 const line = document.createElement('div');
@@ -287,7 +287,13 @@
                     messageDisplay.innerHTML = 'Manual correction needed for some transactions. Please fill in the highlighted fields.';
                     
                     allCategories = data.categories;
-                    renderCorrectionTable(data.data);
+                    allTransactions = data.data; // Store the full data array
+                    
+                    // Filter the data to only show transactions with missing values
+                    const missingTransactions = allTransactions.filter(t => !t.date || !t.description || !t.amount || !t.category);
+                    
+                    renderCorrectionTable(missingTransactions);
+
                 } else if (data.status === 'success') {
                     messageDisplay.className = 'success download-link-container';
                     messageDisplay.innerHTML = `<a class="download-link" href="${data.download_link}" target="_blank" download>📥 Download Excel File</a>`;
@@ -296,9 +302,9 @@
                 }
             }
 
-            function renderCorrectionTable(data) {
+            function renderCorrectionTable(transactions) {
                 correctionTableBody.innerHTML = '';
-                data.forEach((transaction, index) => {
+                transactions.forEach((transaction, index) => {
                     const row = document.createElement('tr');
                     
                     const cells = [
@@ -309,13 +315,14 @@
                         document.createElement('td')
                     ];
 
-                    cells[0].textContent = index + 1;
+                    cells[0].textContent = allTransactions.indexOf(transaction) + 1; // Use the original index from the full array
+                    row.dataset.originalIndex = allTransactions.indexOf(transaction);
                     
                     const dateInput = document.createElement('input');
                     dateInput.type = 'text';
                     dateInput.value = transaction.date || '';
                     dateInput.dataset.field = 'date';
-                    dateInput.dataset.index = index;
+                    dateInput.classList.toggle('invalid-input', !transaction.date);
                     cells[1].appendChild(dateInput);
                     if (!transaction.date) cells[1].classList.add('invalid-field');
 
@@ -323,7 +330,7 @@
                     descriptionInput.type = 'text';
                     descriptionInput.value = transaction.description || '';
                     descriptionInput.dataset.field = 'description';
-                    descriptionInput.dataset.index = index;
+                    descriptionInput.classList.toggle('invalid-input', !transaction.description);
                     cells[2].appendChild(descriptionInput);
                     if (!transaction.description) cells[2].classList.add('invalid-field');
 
@@ -331,7 +338,7 @@
                     amountInput.type = 'text';
                     amountInput.value = transaction.amount || '';
                     amountInput.dataset.field = 'amount';
-                    amountInput.dataset.index = index;
+                    amountInput.classList.toggle('invalid-input', !transaction.amount);
                     cells[3].appendChild(amountInput);
                     if (!transaction.amount) cells[3].classList.add('invalid-field');
                     
@@ -344,9 +351,18 @@
                     });
                     categorySelect.value = transaction.category || '';
                     categorySelect.dataset.field = 'category';
-                    categorySelect.dataset.index = index;
+                    categorySelect.classList.toggle('invalid-input', !transaction.category);
                     cells[4].appendChild(categorySelect);
                     if (!transaction.category) cells[4].classList.add('invalid-field');
+
+                    // Add an event listener to each input/select to update the allTransactions array directly
+                    [dateInput, descriptionInput, amountInput, categorySelect].forEach(input => {
+                        input.addEventListener('input', (e) => {
+                            const originalIndex = row.dataset.originalIndex;
+                            const field = e.target.dataset.field;
+                            allTransactions[originalIndex][field] = e.target.value.trim() === '' ? null : e.target.value.trim();
+                        });
+                    });
 
                     cells.forEach(cell => row.appendChild(cell));
                     correctionTableBody.appendChild(row);
@@ -380,29 +396,22 @@
 
             // Handle submission of corrected data
             submitCorrectionsButton.addEventListener('click', async () => {
-                const correctedData = [];
                 let hasInvalidData = false;
                 
-                const rows = correctionTableBody.querySelectorAll('tr');
-                rows.forEach(row => {
-                    const rowData = {};
-                    const inputs = row.querySelectorAll('input, select');
-                    inputs.forEach(input => {
-                        const field = input.dataset.field;
-                        rowData[field] = input.value.trim() === '' ? null : input.value.trim();
-                        if (rowData[field] === null && field !== 'description') {
-                            input.classList.add('invalid-input');
-                            hasInvalidData = true;
-                        } else {
-                            input.classList.remove('invalid-input');
-                        }
-                    });
-                    correctedData.push(rowData);
-                });
-                
+                // Final validation before submission
+                for (const transaction of allTransactions) {
+                    if (!transaction.date || !transaction.description || !transaction.amount || !transaction.category) {
+                        hasInvalidData = true;
+                        break;
+                    }
+                }
+
                 if (hasInvalidData) {
                     messageDisplay.className = 'error';
                     messageDisplay.innerHTML = 'Please fill in all highlighted fields before submitting.';
+                    // Re-render the table to show validation errors
+                    const missingTransactions = allTransactions.filter(t => !t.date || !t.description || !t.amount || !t.category);
+                    renderCorrectionTable(missingTransactions);
                     return;
                 }
 
@@ -415,7 +424,7 @@
                     const response = await fetch('/submit_corrections', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ corrected_data: correctedData })
+                        body: JSON.stringify({ corrected_data: allTransactions })
                     });
 
                     const data = await response.json();
