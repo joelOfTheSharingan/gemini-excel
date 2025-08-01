@@ -3,55 +3,431 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bank Statement Processor</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        h1 {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 30px;
+            background-color: #f7f9fc;
             color: #333;
+            border-radius: 16px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.05);
+            line-height: 1.6;
         }
-        .error {
-            color: red;
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
         }
+
+        .error, .warning {
+            color: #e74c3c;
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        .warning {
+            color: #f39c12;
+        }
+
         .success {
-            color: green;
+            color: #27ae60;
+            text-align: center;
+            font-weight: bold;
         }
+
         form {
-            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
         }
+
         input[type="file"] {
-            margin-right: 10px;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            background-color: white;
         }
-        input[type="submit"] {
-            padding: 8px 16px;
-            background-color: #007bff;
+
+        input[type="submit"], button {
+            padding: 10px 20px;
+            background-color: #3498db;
             color: white;
             border: none;
+            border-radius: 8px;
+            font-weight: bold;
             cursor: pointer;
+            transition: background-color 0.2s ease;
         }
-        input[type="submit"]:hover {
-            background-color: #0056b3;
+
+        button.correct-submit-button {
+            background-color: #5cb85c;
+            margin-top: 20px;
         }
+
+        button.correct-submit-button:hover {
+            background-color: #4cae4c;
+        }
+
+        input[type="submit"]:hover, button:hover {
+            background-color: #2980b9;
+        }
+
+        #loading {
+            display: none;
+            margin-top: 20px;
+            text-align: center;
+            font-size: 16px;
+            color: #555;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #result {
+            margin-top: 25px;
+            text-align: center;
+            font-size: 16px;
+        }
+
+        #correction-container {
+            margin-top: 30px;
+            display: none;
+        }
+
+        #correction-container h2 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        
+        .correction-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        .correction-table th, .correction-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+
+        .correction-table th {
+            background-color: #ecf0f1;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .correction-table tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+
+        .correction-table input, .correction-table select {
+            width: 90%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        
+        .correction-table .invalid-field {
+            background-color: #fff8e1; /* Light yellow background for missing data */
+        }
+        
+        .correction-table .invalid-input {
+            border: 2px solid #e74c3c;
+        }
+
+        /* Console styling */
+        #console-container {
+            width: 90%;
+            max-width: 800px;
+            margin: 30px auto;
+            height: 250px; /* Reduced height */
+            border: 1px solid #333;
+            background-color: #000;
+            padding: 15px;
+            overflow-y: auto;
+            flex-direction: column;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            display: flex; /* Always visible but hidden when not needed */
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+
+        #console-container.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #console-output {
+            flex-grow: 1;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            padding-bottom: 10px;
+            overflow-y: auto;
+            color: #d4d4d4;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+        }
+        
+        .log-info { color: #d4d4d4; }
+        .log-warning { color: #e5c07b; }
+        .log-error { color: #e06c75; }
+
     </style>
 </head>
 <body>
     <h1>Upload Your Bank Statement (.txt)</h1>
-    <form method="post" enctype="multipart/form-data">
+    <form id="uploadForm" method="post" enctype="multipart/form-data">
         <input type="file" name="file" accept=".txt" required>
         <input type="submit" value="Upload and Convert">
     </form>
-    {% if file_uploaded %}
-        <p class="success">File uploaded successfully!</p>
-    {% endif %}
-    {% if download_ready %}
-        <p class="success">File processed successfully! <a href="/download/{{ output_filename }}">Download Categorized_Statement.xlsx</a></p>
-    {% endif %}
-    {% if error_message %}
-        <p class="error">Error: {{ error_message }}</p>
-    {% endif %}
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <p>Processing your file, please wait...</p>
+    </div>
+
+    <div id="message-display"></div>
+    
+    <div id="correction-container">
+        <h2>Manual Correction Required</h2>
+        <p class="warning">Some transactions have missing or invalid data. Please fill in the highlighted fields and submit.</p>
+        <table class="correction-table" id="correction-table-body">
+            <thead>
+                <tr>
+                    <th>Transaction #</th>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Category</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+        <div style="text-align: center;">
+            <button class="correct-submit-button" id="submit-corrections-button">Submit Corrections</button>
+        </div>
+    </div>
+
+    <div id="console-container">
+        <h3>Process Log</h3>
+        <pre id="console-output"></pre>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadForm = document.getElementById('uploadForm');
+            const loadingDiv = document.getElementById('loading');
+            const messageDisplay = document.getElementById('message-display');
+            const correctionContainer = document.getElementById('correction-container');
+            const correctionTableBody = document.querySelector('#correction-table-body tbody');
+            const submitCorrectionsButton = document.getElementById('submit-corrections-button');
+            const consoleContainer = document.getElementById('console-container');
+            const consoleOutput = document.getElementById('console-output');
+
+            let allCategories = [];
+
+            function logMessage(message, type = 'info') {
+                const line = document.createElement('div');
+                line.className = `console-line log-${type}`;
+                line.textContent = message;
+                consoleOutput.appendChild(line);
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                consoleContainer.classList.add('active');
+            }
+
+            function handleBackendResponse(data) {
+                // First, display all the console logs
+                const logLines = data.console_output.split('\n');
+                logLines.forEach(line => {
+                    if (line.trim() === '') return;
+                    if (line.startsWith('ERROR:')) {
+                        logMessage(line, 'error');
+                    } else if (line.startsWith('WARNING:')) {
+                        logMessage(line, 'warning');
+                    } else {
+                        logMessage(line, 'info');
+                    }
+                });
+
+                if (data.status === 'error') {
+                    messageDisplay.className = 'error';
+                    messageDisplay.innerHTML = data.error_message;
+                    loadingDiv.style.display = 'none';
+                    correctionContainer.style.display = 'none';
+                } else if (data.status === 'needs_correction') {
+                    loadingDiv.style.display = 'none';
+                    correctionContainer.style.display = 'block';
+                    messageDisplay.className = 'warning';
+                    messageDisplay.innerHTML = 'Manual correction needed for some transactions. Please fill in the highlighted fields.';
+                    
+                    allCategories = data.categories;
+                    renderCorrectionTable(data.data);
+                } else if (data.status === 'success') {
+                    messageDisplay.className = 'success download-link-container';
+                    messageDisplay.innerHTML = `<a class="download-link" href="${data.download_link}" target="_blank" download>📥 Download Excel File</a>`;
+                    loadingDiv.style.display = 'none';
+                    correctionContainer.style.display = 'none';
+                }
+            }
+
+            function renderCorrectionTable(data) {
+                correctionTableBody.innerHTML = '';
+                data.forEach((transaction, index) => {
+                    const row = document.createElement('tr');
+                    
+                    const cells = [
+                        document.createElement('td'),
+                        document.createElement('td'),
+                        document.createElement('td'),
+                        document.createElement('td'),
+                        document.createElement('td')
+                    ];
+
+                    cells[0].textContent = index + 1;
+                    
+                    const dateInput = document.createElement('input');
+                    dateInput.type = 'text';
+                    dateInput.value = transaction.date || '';
+                    dateInput.dataset.field = 'date';
+                    dateInput.dataset.index = index;
+                    cells[1].appendChild(dateInput);
+                    if (!transaction.date) cells[1].classList.add('invalid-field');
+
+                    const descriptionInput = document.createElement('input');
+                    descriptionInput.type = 'text';
+                    descriptionInput.value = transaction.description || '';
+                    descriptionInput.dataset.field = 'description';
+                    descriptionInput.dataset.index = index;
+                    cells[2].appendChild(descriptionInput);
+                    if (!transaction.description) cells[2].classList.add('invalid-field');
+
+                    const amountInput = document.createElement('input');
+                    amountInput.type = 'text';
+                    amountInput.value = transaction.amount || '';
+                    amountInput.dataset.field = 'amount';
+                    amountInput.dataset.index = index;
+                    cells[3].appendChild(amountInput);
+                    if (!transaction.amount) cells[3].classList.add('invalid-field');
+                    
+                    const categorySelect = document.createElement('select');
+                    allCategories.forEach(cat => {
+                        const option = document.createElement('option');
+                        option.value = cat;
+                        option.textContent = cat;
+                        categorySelect.appendChild(option);
+                    });
+                    categorySelect.value = transaction.category || '';
+                    categorySelect.dataset.field = 'category';
+                    categorySelect.dataset.index = index;
+                    cells[4].appendChild(categorySelect);
+                    if (!transaction.category) cells[4].classList.add('invalid-field');
+
+                    cells.forEach(cell => row.appendChild(cell));
+                    correctionTableBody.appendChild(row);
+                });
+            }
+
+            // Handle file upload
+            uploadForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                messageDisplay.innerHTML = '';
+                correctionContainer.style.display = 'none';
+                consoleOutput.innerHTML = '';
+                loadingDiv.style.display = 'block';
+                
+                const formData = new FormData(uploadForm);
+                
+                try {
+                    const response = await fetch('/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    handleBackendResponse(data);
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    messageDisplay.className = 'error';
+                    messageDisplay.innerHTML = `An unexpected error occurred: ${error.message}`;
+                    logMessage(`ERROR: An unexpected client-side error occurred: ${error.message}`, 'error');
+                }
+            });
+
+            // Handle submission of corrected data
+            submitCorrectionsButton.addEventListener('click', async () => {
+                const correctedData = [];
+                let hasInvalidData = false;
+                
+                const rows = correctionTableBody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const rowData = {};
+                    const inputs = row.querySelectorAll('input, select');
+                    inputs.forEach(input => {
+                        const field = input.dataset.field;
+                        rowData[field] = input.value.trim() === '' ? null : input.value.trim();
+                        if (rowData[field] === null && field !== 'description') {
+                            input.classList.add('invalid-input');
+                            hasInvalidData = true;
+                        } else {
+                            input.classList.remove('invalid-input');
+                        }
+                    });
+                    correctedData.push(rowData);
+                });
+                
+                if (hasInvalidData) {
+                    messageDisplay.className = 'error';
+                    messageDisplay.innerHTML = 'Please fill in all highlighted fields before submitting.';
+                    return;
+                }
+
+                loadingDiv.style.display = 'block';
+                correctionContainer.style.display = 'none';
+                messageDisplay.innerHTML = '';
+                consoleOutput.innerHTML = '';
+                
+                try {
+                    const response = await fetch('/submit_corrections', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ corrected_data: correctedData })
+                    });
+
+                    const data = await response.json();
+                    handleBackendResponse(data);
+                } catch (error) {
+                    console.error('Fetch error during corrections:', error);
+                    messageDisplay.className = 'error';
+                    messageDisplay.innerHTML = `An unexpected error occurred during correction submission: ${error.message}`;
+                    logMessage(`ERROR: An unexpected client-side error occurred during correction submission: ${error.message}`, 'error');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
