@@ -4,17 +4,37 @@ import json
 import re
 import os
 from openpyxl import Workbook
-from openpyxl import load_workbook
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Alignment, Font # Added Font for potential header styling
+from openpyxl.styles import PatternFill, Alignment, Font
 from collections import defaultdict
 from datetime import datetime
 import logging
 
+# Configure the Gemini API (API key is a placeholder)
 genai.configure(api_key="AIzaSyCK6TUjndLC631MFMhzceS3isC6vghgvIk")
 model = genai.GenerativeModel("gemini-1.5-flash")
 
+# Setup logging to capture output
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+COLOR_MAP = {
+    "Food": "FFEB9C",
+    "Travel": "C6EFCE",
+    "Bills": "FFCDD2",
+    "Fuel": "D9E1F2",
+    "Health": "FCE4D6",
+    "Others": "D9D2E9",
+}
+
+SUMMARY_HEADER_FILL_COLOR = "E2EFDA"
+TRANSACTION_HEADERS = ["Date", "Description", "Amount", "Category"]
+SUMMARY_HEADERS = ["Category", "Total", "Percentage (%)"]
+DEFAULT_FILL_COLOR = "FFFFFF"
+
 def classify_transactions(text):
+    """
+    Uses the Gemini API to parse transaction text and classify transactions into categories.
+    Returns a list of transaction dictionaries and a boolean indicating if manual correction is needed.
+    """
     prompt = f"""
 You are a financial statement parser.
 You must extract a clean list of transactions from the input text, returning a valid JSON list of dictionaries, where each dictionary contains:
@@ -59,101 +79,61 @@ Only return a JSON list like this:
 ### Input:
 {text}
 """
-
+    needs_correction = False
     try:
         response = model.generate_content(prompt)
-        print(f"[DEBUG] Raw Gemini response:\n{response.text}")
+        logging.info(f"[DEBUG] Raw Gemini response:\n{response.text}")
 
-        # Strip Markdown formatting
+        # Clean the response to ensure it's valid JSON
         json_text = re.sub(r'```(?:json)?|```', '', response.text).strip()
-        print(f"[DEBUG] Cleaned JSON text:\n{json_text}")
+        logging.info(f"[DEBUG] Cleaned JSON text:\n{json_text}")
 
         data = json.loads(json_text)
         if not isinstance(data, list):
             raise ValueError("Response is not a JSON list")
 
-        # Validate and clean
         required_fields = ["date", "description", "amount", "category"]
-        for tx in data:
+        for i, tx in enumerate(data):
             if not isinstance(tx, dict):
                 raise ValueError("Transaction is not a dictionary")
             for field in required_fields:
                 if field not in tx or not tx[field] or str(tx[field]).strip().lower() == "missing":
-                    # Ask the user to fill in missing fields
-                    desc = ", ".join(f"{k}: {tx.get(k, '?')}" for k in required_fields if k != field)
-                    user_input = input(f"Enter the missing value for '{field}' ({desc}): ")
-                    tx[field] = user_input if field != "amount" else str(float(user_input))
-            try:
-                tx["amount"] = str(float(tx["amount"]))
-            except (ValueError, TypeError):
-                print(f"[DEBUG] Invalid amount in transaction: {tx}")
-                tx["amount"] = "0.0"
+                    logging.warning(f"Missing or invalid '{field}' for transaction {i+1}. Marking for correction.")
+                    tx[field] = None # Use None to signal missing data
+                    needs_correction = True
 
-        print(f"[DEBUG] Final parsed transactions:\n{data}")
-        return data
+            # Validate the amount field
+            try:
+                if tx.get("amount") is not None:
+                    tx["amount"] = str(float(tx["amount"]))
+            except (ValueError, TypeError):
+                if tx["amount"] is not None:
+                    logging.warning(f"Invalid amount '{tx.get('amount')}' for transaction {i+1}. Marking for correction.")
+                    tx["amount"] = None
+                    needs_correction = True
+
+        logging.info(f"[DEBUG] Final parsed transactions before frontend correction:\n{data}")
+        return data, needs_correction
 
     except json.JSONDecodeError as e:
-        print(f"❌ JSON decode error: {e}")
+        logging.error(f"JSON decode error: {e}")
         raise ValueError(f"Invalid JSON format in Gemini response: {e}")
     except ValueError as e:
-        print(f"❌ Validation error: {e}")
+        logging.error(f"Validation error: {e}")
         raise
     except Exception as e:
-        print(f"❌ Error in classify_transactions: {e}")
+        logging.error(f"Error in classify_transactions: {e}")
         raise
-
-
-CATEGORY_COLORS = {
-    "Food": "FFE599",     # light yellow
-    "Travel": "CFE2F3",   # light blue
-    "Bills": "F4CCCC",    # light red
-    "Fuel": "D9D2E9",     # light purple
-    "Health": "D0E0E3",   # light aqua
-    "Others": "EAD1DC",   # light pink
-}
-
-def parse_date(date_str):
-    try:
-        return datetime.strptime(date_str + " 2025", "%d %b %Y")
-    except Exception:
-        return datetime(1900, 1, 1)
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-
-# Hexadecimal color codes for cell fills - ADJUSTED TO MATCH GEMINI'S OUTPUT CATEGORIES
-COLOR_MAP = {
-    "Food": "FFEB9C",        # Light yellow
-    "Travel": "C6EFCE",      # Light green (mapped from "Transport")
-    "Bills": "FFCDD2",       # Light red (mapped from "Shopping", "Utilities")
-    "Fuel": "D9E1F2",        # Light blue
-    "Health": "FCE4D6",      # Light orange
-    "Others": "D9D2E9",      # Light purple (mapped from "Entertainment", "Other")
-}
-
-SUMMARY_HEADER_FILL_COLOR = "E2EFDA" # Light greenish-blue for summary header
-TRANSACTION_HEADERS = ["Date", "Description", "Amount", "Category"]
-SUMMARY_HEADERS = ["Category", "Total", "Percentage (%)"]
-DEFAULT_FILL_COLOR = "FFFFFF" # White for unknown categories
 
 def write_to_excel(data: list[dict], output_path: str) -> None:
     """
-    Writes categorized transaction data to an Excel file with styling and a summary.
-
-    Args:
-        data (list[dict]): A list of dictionaries, where each dictionary
-                           represents a transaction. Expected keys: "date" (str DD Mon),
-                           "description" (str), "amount" (numeric or str convertible to float),
-                           "category" (str).
-        output_path (str): The file path where the Excel workbook will be saved.
+    Writes the list of transactions to an Excel file with colored rows and a summary.
     """
     wb = Workbook()
     ws = wb.active
     ws.title = "Categorized Transactions"
 
-    # --- Write Transaction Headers ---
     ws.append(TRANSACTION_HEADERS)
-    # Optional: Apply bold font to headers
     for cell in ws[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
@@ -161,19 +141,16 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
     category_totals = defaultdict(float)
     grand_total = 0.0
 
-    # --- Sort Data by Date (CRITICAL FIX HERE) ---
-    # The date format from classify_transactions is "DD Mon" (e.g., "12 Jul").
-    # We append a default year (e.g., " 2025") to make it a full date string for parsing.
     try:
-        # Use a lambda to parse dates for sorting
-        data.sort(key=lambda x: datetime.strptime(x.get("date", "") + " 2025", "%d %b %Y"))
-    except ValueError:
+        clean_data = [item for item in data if all(item[k] is not None for k in ["date", "description", "amount", "category"])]
+        clean_data.sort(key=lambda x: datetime.strptime(x.get("date", "") + " 2025", "%d %b %Y"))
+        if len(clean_data) < len(data):
+             logging.warning(f"Skipped {len(data) - len(clean_data)} incomplete transactions during Excel write.")
+        data = clean_data
+
+    except (ValueError, TypeError):
         logging.warning("Date sorting failed due to invalid date format in some entries. Data will not be sorted by date.")
-    except TypeError:
-        logging.warning("Date sorting failed due to non-string date values. Data will not be sorted by date.")
 
-
-    # --- Process and Write Each Transaction Row ---
     for item in data:
         try:
             date = item["date"]
@@ -181,7 +158,7 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
             amount_raw = item["amount"]
             category = item["category"]
         except KeyError as e:
-            logging.warning(f"Skipping row due to missing key '{e}': {item}")
+            logging.warning(f"Skipping row due to missing key '{e}' after correction attempts: {item}")
             continue
 
         row_to_write = [date, description, amount_raw, category]
@@ -200,10 +177,9 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
             grand_total += amount
         except (ValueError, TypeError):
             logging.warning(f"Skipping amount '{amount_raw}' for category '{category}' "
-                            f"as it could not be converted to a number. Item: {item}")
+                            f"as it could not be converted to a number during Excel write. Item: {item}")
             continue
 
-    # --- Write Summary Section ---
     ws.append([])
     summary_section_start_row = ws.max_row + 1
 
@@ -232,7 +208,6 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.alignment = Alignment(horizontal="center")
 
-    # --- Auto Adjust Column Width ---
     for col_idx, column_cells in enumerate(ws.iter_cols(), start=1):
         max_length = 0
         for cell in column_cells:
@@ -242,7 +217,6 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
         adjusted_width = max_length + 2
         ws.column_dimensions[column_cells[0].column_letter].width = adjusted_width
 
-    # --- Save Workbook ---
     try:
         wb.save(output_path)
         logging.info(f"Successfully saved Excel to {output_path}")
