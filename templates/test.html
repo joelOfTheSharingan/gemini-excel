@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal Console</title>
+    <style>
+        body {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 20px;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .console-container {
+            width: 90%;
+            max-width: 800px;
+            height: 60vh;
+            border: 1px solid #333;
+            background-color: #000;
+            padding: 10px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+        }
+        #console-output {
+            flex-grow: 1;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            padding-bottom: 10px;
+            overflow-y: auto;
+        }
+        .console-line {
+            line-height: 1.5;
+        }
+        #console-input-area {
+            display: flex;
+            align-items: center;
+            color: #00ff00; /* Green prompt */
+        }
+        #console-prompt {
+            margin-right: 5px;
+        }
+        #console-text-input {
+            background: transparent;
+            border: none;
+            color: #d4d4d4;
+            font-family: inherit;
+            font-size: inherit;
+            outline: none;
+            flex-grow: 1;
+            caret-color: #d4d4d4; /* Blinking cursor color */
+        }
+        .user-input {
+            color: #d4d4d4; /* Color for user's typed text */
+        }
+        .system-message {
+            color: #61afef; /* Blue for system messages */
+        }
+    </style>
+</head>
+<body>
+    <div class="console-container">
+        <div id="console-output"></div>
+        <div id="console-input-area">
+            <span id="console-prompt"></span>
+            <input type="text" id="console-text-input" autocomplete="off">
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const consoleOutput = document.getElementById('console-output');
+            const consolePrompt = document.getElementById('console-prompt');
+            const consoleTextInput = document.getElementById('console-text-input');
+
+            // Function to log messages to the console output
+            function logMessage(message, className = '') {
+                const line = document.createElement('div');
+                line.className = `console-line ${className}`;
+                line.textContent = message;
+                consoleOutput.appendChild(line);
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+            }
+
+            // A list of prompts to cycle through
+            const prompts = [
+                "What is your name?",
+                "What is your favorite color?",
+                "Enter a value:",
+                "One last question:"
+            ];
+            let currentPromptIndex = 0;
+
+            // Function to display the next prompt and focus the input
+            function promptForInput() {
+                if (currentPromptIndex < prompts.length) {
+                    const promptText = prompts[currentPromptIndex];
+                    consolePrompt.textContent = `>>> ${promptText}`;
+                    consoleTextInput.value = '';
+                    consoleTextInput.focus();
+                } else {
+                    consolePrompt.textContent = '';
+                    consoleTextInput.style.display = 'none';
+                    logMessage("\nEnd of session. Refresh to restart.");
+                }
+            }
+
+            // Handle the 'Enter' key press
+            consoleTextInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const inputValue = consoleTextInput.value.trim();
+                    if (inputValue !== '') {
+                        logMessage(`>>> ${prompts[currentPromptIndex]}`);
+                        logMessage(inputValue, 'user-input');
+                        currentPromptIndex++;
+                        promptForInput();
+                    }
+                }
+            });
+
+            // Initial messages and prompt on page load
+            logMessage("System ready.", 'system-message');
+            logMessage("Welcome to the interactive console demo.");
+            promptForInput();
+        });
+    </script>
+</body>
+</html>
