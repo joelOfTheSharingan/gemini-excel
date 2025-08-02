@@ -181,32 +181,45 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
             continue
 
     ws.append([])
+
+    # Track the row where the summary section begins
     summary_section_start_row = ws.max_row + 1
 
+    # Add "Summary" title row
     ws.append(["Summary"])
-    summary_title_cell = ws.cell(row=ws.max_row, column=1)
+    summary_row_idx = ws.max_row
+
+    # Merge cells A:D in "Summary" row
+    ws.merge_cells(start_row=summary_row_idx, start_column=1, end_row=summary_row_idx, end_column=3)
+
+    # Format merged cell
+    summary_title_cell = ws.cell(row=summary_row_idx, column=1)
     summary_title_cell.font = Font(bold=True, size=14)
     summary_title_cell.alignment = Alignment(horizontal="center")
 
+    # Add headers
     ws.append(SUMMARY_HEADERS)
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
-        cell.fill = PatternFill(start_color=SUMMARY_HEADER_FILL_COLOR, end_color=SUMMARY_HEADER_FILL_COLOR, fill_type="solid")
+        cell.fill = PatternFill(
+            start_color=SUMMARY_HEADER_FILL_COLOR,
+            end_color=SUMMARY_HEADER_FILL_COLOR,
+            fill_type="solid"
+        )
 
     num_category_summary_rows = 0
     for category, total in category_totals.items():
         percent = (total / grand_total) * 100 if grand_total != 0 else 0
         ws.append([category, round(total, 2), round(percent, 2)])
+
+        row_idx = ws.max_row  # Get the current row index just appended
+        for col_idx in range(1, len(SUMMARY_HEADERS) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.alignment = Alignment(horizontal="center")  # ✅ Ensure it's centered
+
         num_category_summary_rows += 1
 
-    if num_category_summary_rows > 0:
-        summary_data_min_row = summary_section_start_row + 2
-        summary_data_max_row = summary_data_min_row + num_category_summary_rows - 1
-        for row_idx in range(summary_data_min_row, summary_data_max_row + 1):
-            for col_idx in range(1, len(SUMMARY_HEADERS) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                cell.alignment = Alignment(horizontal="center")
 
     for col_idx, column_cells in enumerate(ws.iter_cols(), start=1):
         max_length = 0
