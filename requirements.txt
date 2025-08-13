@@ -1,4 +1,7 @@
 flask
-openpyxl
 google-generativeai
 pandas
+openpyxl
+PyPDF2
+pdfplumber
+Werkzeug
