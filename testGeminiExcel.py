@@ -8,12 +8,11 @@ from openpyxl.styles import PatternFill, Alignment, Font
 from collections import defaultdict
 from datetime import datetime
 import logging
+import io
 
-# Configure the Gemini API (API key is a placeholder)
-genai.configure(api_key="AIzaSyCK6TUjndLC631MFMhzceS3isC6vghgvIk")
-model = genai.GenerativeModel("gemini-1.5-flash")
+genai.configure(api_key="AIzaSyBtDDwp31dKN7yDv-yRJOiONBtWXjw9XSU") 
+model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20")
 
-# Setup logging to capture output
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 COLOR_MAP = {
@@ -31,103 +30,98 @@ SUMMARY_HEADERS = ["Category", "Total", "Percentage (%)"]
 DEFAULT_FILL_COLOR = "FFFFFF"
 
 def classify_transactions(text):
-    """
-    Uses the Gemini API to parse transaction text and classify transactions into categories.
-    Returns a list of transaction dictionaries and a boolean indicating if manual correction is needed.
-    """
     prompt = f"""
 You are a financial statement parser.
-You must extract a clean list of transactions from the input text, returning a valid JSON list of dictionaries, where each dictionary contains:
-- "date": (e.g., "12 Jul", "4 Mar") — if missing, use "Missing"
-- "description": a short summary of the transaction (e.g., "Uber ride", "Electricity bill")
-- "amount": only the numeric part, without the currency symbol
-- "category": one of these categories:
-  - "Food"
-  - "Travel"
-  - "Bills"
-  - "Fuel"
-  - "Health"
-  - "Others"
+Your task is to extract a clean list of financial transactions from the provided input text.
+The output must be a valid JSON list of dictionaries. Each dictionary must represent a single transaction
+and contain the following fields:
+- "date": The date of the transaction. Format as "DD Mon" (e.g., "12 Jul", "04 Mar").
+            If the date is missing or unclear, set this field to "Missing".
+- "description": A concise summary of the transaction (e.g., "Uber ride", "Electricity bill", "Supermarket purchase").
+            If the description is missing or unclear, set this field to "Missing".
+- "amount": The numeric value of the transaction, without any currency symbols, commas, or other non-numeric characters.
+            Ensure it can be parsed as a floating-point number.
+            If the amount is missing or unclear, set this field to "Missing".
+- "category": The classified category for the transaction. Choose one of the following exact categories:
+  - "Food" (e.g., groceries, restaurants, snacks, cafes, dining)
+  - "Travel" (e.g., taxis, Uber, buses, trains, flights, tolls, public transport)
+  - "Bills" (e.g., electricity, water, rent, phone, internet, DTH, utilities, subscriptions)
+  - "Fuel" (e.g., petrol, diesel, gasoline, car charging)
+  - "Health" (e.g., medicine, hospitals, tests, clinics, pharmacy)
+  - "Others" (Any transaction that does not clearly fit into the above categories)
 
-Categories must be inferred based on the description:
-- "Food" → groceries, restaurants, snacks, cafes
-- "Travel" → taxis, Uber, buses, trains, flights, tolls
-- "Bills" → electricity, water, rent, phone, internet, DTH
-- "Fuel" → petrol, diesel, gasoline
-- "Health" → medicine, hospitals, tests, clinics
-- "Others" → everything else
+### Output Format Strict Rules:
+- Your response MUST be a pure JSON list. DO NOT include any explanatory text, markdown code blocks (e.g., ```json), or any other formatting outside the JSON array.
+- Use the EXACT field names: "date", "description", "amount", "category".
+- If any required field's value cannot be confidently extracted or is completely absent, set its value to the string "Missing".
+- Ensure the JSON is well-formed and valid.
 
-### Your output format:
-Only return a JSON list like this:
+### Example Expected Output:
 [
   {{
     "date": "12 Jul",
     "description": "Uber ride",
-    "amount": "650",
+    "amount": "650.00",
     "category": "Travel"
   }},
-  ...
+  {{
+    "date": "01 Aug",
+    "description": "Electricity bill",
+    "amount": "1250.75",
+    "category": "Bills"
+  }},
+  {{
+    "date": "Missing",
+    "description": "Unknown transaction",
+    "amount": "Missing",
+    "category": "Others"
+  }}
 ]
 
-### Rules:
-- Use the exact field names: "date", "description", "amount", "category"
-- No extra text before or after the JSON list
-- Do not return Markdown formatting (no ```json blocks)
-- If any field is missing, fill it with "Missing"
-- Be very careful to produce valid JSON
-
-### Input:
+### Input Text:
 {text}
 """
     needs_correction = False
     try:
         response = model.generate_content(prompt)
         logging.info(f"[DEBUG] Raw Gemini response:\n{response.text}")
-
-        # Clean the response to ensure it's valid JSON
         json_text = re.sub(r'```(?:json)?|```', '', response.text).strip()
-        logging.info(f"[DEBUG] Cleaned JSON text:\n{json_text}")
-
+        logging.info(f"[DEBUG] Cleaned JSON text for parsing:\n{json_text}")
         data = json.loads(json_text)
         if not isinstance(data, list):
-            raise ValueError("Response is not a JSON list")
-
+            raise ValueError("Gemini response is not a JSON list. Expected a list of transactions.")
         required_fields = ["date", "description", "amount", "category"]
         for i, tx in enumerate(data):
             if not isinstance(tx, dict):
-                raise ValueError("Transaction is not a dictionary")
+                logging.error(f"Transaction at index {i} is not a dictionary. Skipping it.")
+                continue
             for field in required_fields:
                 if field not in tx or not tx[field] or str(tx[field]).strip().lower() == "missing":
-                    logging.warning(f"Missing or invalid '{field}' for transaction {i+1}. Marking for correction.")
-                    tx[field] = None # Use None to signal missing data
+                    logging.warning(f"Missing or invalid '{field}' for transaction {i+1} ('{tx.get('description', 'N/A')}'). Marking for correction.")
+                    tx[field] = None
                     needs_correction = True
-
-            # Validate the amount field
-            try:
-                if tx.get("amount") is not None:
+            if tx.get("amount") is not None:
+                try:
                     tx["amount"] = str(float(tx["amount"]))
-            except (ValueError, TypeError):
-                if tx["amount"] is not None:
-                    logging.warning(f"Invalid amount '{tx.get('amount')}' for transaction {i+1}. Marking for correction.")
+                except (ValueError, TypeError):
+                    logging.warning(f"Invalid amount format '{tx.get('amount')}' for transaction {i+1} ('{tx.get('description', 'N/A')}'). Marking for correction.")
                     tx["amount"] = None
                     needs_correction = True
-
-        logging.info(f"[DEBUG] Final parsed transactions before frontend correction:\n{data}")
+        logging.info(f"[DEBUG] Final parsed transactions (with None for missing fields) before frontend correction:\n{data}")
         return data, needs_correction
-
     except json.JSONDecodeError as e:
-        logging.error(f"JSON decode error: {e}")
-        raise ValueError(f"Invalid JSON format in Gemini response: {e}")
+        logging.error(f"JSON decode error in Gemini response: {e}. Raw response was: {response.text}")
+        raise ValueError(f"Invalid JSON format received from the model. Please check the model's output: {e}")
     except ValueError as e:
-        logging.error(f"Validation error: {e}")
+        logging.error(f"Data validation error after parsing: {e}")
         raise
     except Exception as e:
-        logging.error(f"Error in classify_transactions: {e}")
+        logging.error(f"An unexpected error occurred during transaction classification: {e}", exc_info=True)
         raise
 
-def write_to_excel(data: list[dict], output_path: str) -> None:
+def write_to_excel(data: list[dict], file_stream: io.BytesIO) -> None:
     """
-    Writes the list of transactions to an Excel file with colored rows and a summary.
+    Writes the list of transactions to an Excel file in an in-memory stream.
     """
     wb = Workbook()
     ws = wb.active
@@ -141,24 +135,28 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
     category_totals = defaultdict(float)
     grand_total = 0.0
 
-    try:
-        clean_data = [item for item in data if all(item[k] is not None for k in ["date", "description", "amount", "category"])]
-        clean_data.sort(key=lambda x: datetime.strptime(x.get("date", "") + " 2025", "%d %b %Y"))
-        if len(clean_data) < len(data):
-             logging.warning(f"Skipped {len(data) - len(clean_data)} incomplete transactions during Excel write.")
-        data = clean_data
-
-    except (ValueError, TypeError):
-        logging.warning("Date sorting failed due to invalid date format in some entries. Data will not be sorted by date.")
-
+    clean_data = []
     for item in data:
+        if all(item.get(k) is not None for k in ["date", "description", "amount", "category"]):
+            clean_data.append(item)
+        else:
+            logging.warning(f"Skipping incomplete transaction during Excel write due to missing data: {item}")
+
+    try:
+        current_year = datetime.now().year
+        clean_data.sort(key=lambda x: datetime.strptime(f"{x.get('date')} {current_year}", "%d %b %Y"))
+        logging.info("Transactions sorted by date for Excel output.")
+    except (ValueError, TypeError) as e:
+        logging.warning(f"Date sorting failed due to invalid date format in some entries ({e}). Data will be written unsorted.")
+
+    for item in clean_data:
         try:
             date = item["date"]
             description = item["description"]
             amount_raw = item["amount"]
             category = item["category"]
         except KeyError as e:
-            logging.warning(f"Skipping row due to missing key '{e}' after correction attempts: {item}")
+            logging.error(f"Critical: Missing expected key '{e}' in transaction item during Excel write. This item should have been filtered: {item}")
             continue
 
         row_to_write = [date, description, amount_raw, category]
@@ -177,14 +175,15 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
             grand_total += amount
         except (ValueError, TypeError):
             logging.warning(f"Skipping amount '{amount_raw}' for category '{category}' "
-                            f"as it could not be converted to a number during Excel write. Item: {item}")
+                            f"during Excel total calculation as it could not be converted to a number. Item: {item}")
             continue
 
     ws.append([])
-    summary_section_start_row = ws.max_row + 1
-
+    summary_title_row_idx = ws.max_row + 1
     ws.append(["Summary"])
-    summary_title_cell = ws.cell(row=ws.max_row, column=1)
+    ws.merge_cells(start_row=summary_title_row_idx, start_column=1, end_row=summary_title_row_idx, end_column=3)
+
+    summary_title_cell = ws.cell(row=summary_title_row_idx, column=1)
     summary_title_cell.font = Font(bold=True, size=14)
     summary_title_cell.alignment = Alignment(horizontal="center")
 
@@ -192,21 +191,21 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
-        cell.fill = PatternFill(start_color=SUMMARY_HEADER_FILL_COLOR, end_color=SUMMARY_HEADER_FILL_COLOR, fill_type="solid")
+        cell.fill = PatternFill(
+            start_color=SUMMARY_HEADER_FILL_COLOR,
+            end_color=SUMMARY_HEADER_FILL_COLOR,
+            fill_type="solid"
+        )
 
-    num_category_summary_rows = 0
-    for category, total in category_totals.items():
+    for category in sorted(category_totals.keys()):
+        total = category_totals[category]
         percent = (total / grand_total) * 100 if grand_total != 0 else 0
         ws.append([category, round(total, 2), round(percent, 2)])
-        num_category_summary_rows += 1
 
-    if num_category_summary_rows > 0:
-        summary_data_min_row = summary_section_start_row + 2
-        summary_data_max_row = summary_data_min_row + num_category_summary_rows - 1
-        for row_idx in range(summary_data_min_row, summary_data_max_row + 1):
-            for col_idx in range(1, len(SUMMARY_HEADERS) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                cell.alignment = Alignment(horizontal="center")
+        row_idx = ws.max_row
+        for col_idx in range(1, len(SUMMARY_HEADERS) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.alignment = Alignment(horizontal="center")
 
     for col_idx, column_cells in enumerate(ws.iter_cols(), start=1):
         max_length = 0
@@ -218,7 +217,8 @@ def write_to_excel(data: list[dict], output_path: str) -> None:
         ws.column_dimensions[column_cells[0].column_letter].width = adjusted_width
 
     try:
-        wb.save(output_path)
-        logging.info(f"Successfully saved Excel to {output_path}")
+        # Save the workbook to the in-memory stream
+        wb.save(file_stream)
+        logging.info("Successfully saved Excel to in-memory stream.")
     except Exception as e:
-        logging.error(f"Failed to save Excel file to {output_path}: {e}")
+        logging.error(f"Failed to save Excel file to stream: {e}", exc_info=True)

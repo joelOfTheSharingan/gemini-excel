@@ -1,4 +1,10 @@
 flask
-openpyxl
 google-generativeai
 pandas
+<<<<<<< HEAD
+=======
+openpyxl
+PyPDF2
+pdfplumber
+Werkzeug
+>>>>>>> 9ca7ebc (Updated spinner and download button)
