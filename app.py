@@ -2,69 +2,62 @@ from flask import Flask, render_template, request, send_file
 from PyPDF2 import PdfReader
 import uuid
 import io
+import os
 
-# Import the new, in-memory capable processor
-from processor import process_transactions_data
+from processor import process_transactions_data  # Import the in-memory capable processor
 
 app = Flask(__name__)
 
-def pdf_to_text(pdf_file_stream):
-    """Extracts text from a PDF file stream and returns it as a string."""
+def pdf_to_text(pdf_stream):
+    """Extracts and returns all text from a PDF file stream."""
     try:
-        reader = PdfReader(pdf_file_stream)
-        text = ""
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text
+        reader = PdfReader(pdf_stream)
+        return "\n".join(
+            filter(None, (page.extract_text() for page in reader.pages))
+        )
     except Exception as e:
-        print(f"❌ Error during PDF text extraction: {e}")
+        print(f"[ERROR] PDF text extraction failed: {e}")
         return None
 
-@app.route('/')
+
+@app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route('/upload', methods=['POST'])
+
+@app.route("/upload", methods=["POST"])
 def upload_pdf():
-    if 'file' not in request.files:
+    file = request.files.get("file")
+    
+    if not file or file.filename.strip() == "":
         return "No file uploaded", 400
 
-    file = request.files['file']
-    if file.filename == '':
-        return "No selected file", 400
+    pdf_stream = io.BytesIO(file.read())
+    text_content = pdf_to_text(pdf_stream)
 
-    # Read the file into an in-memory stream (BytesIO)
-    pdf_file_stream = io.BytesIO(file.read())
-    
+    if not text_content:
+        return "Failed to extract text from PDF.", 500
+
     try:
-        text_content = pdf_to_text(pdf_file_stream)
-        if not text_content:
-            return "Failed to extract text from PDF.", 500
-
-        # Pass the text content directly to the processor
-        processing_result = process_transactions_data(text_content)
+        result = process_transactions_data(text_content)
         
-        if processing_result['status'] == 'success':
-            excel_data = processing_result['excel_data']
-            output_filename = f"Categorized_Statement_{uuid.uuid4().hex}.xlsx"
-            
-            # Use send_file to serve the in-memory data
-            return send_file(
-                io.BytesIO(excel_data),
-                download_name=output_filename,
-                as_attachment=True,
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            )
-        else:
-            return render_template("index.html", error_message=processing_result.get('error_message'))
+        if result.get("status") != "success":
+            return render_template("index.html", error_message=result.get("error_message", "Processing failed."))
+
+        excel_data = result["excel_data"]
+        filename = f"Categorized_Statement_{uuid.uuid4().hex}.xlsx"
+
+        return send_file(
+            io.BytesIO(excel_data),
+            download_name=filename,
+            as_attachment=True,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     except Exception as e:
-        error_message = f"An error occurred during file processing: {str(e)}"
-        return render_template("index.html", error_message=error_message)
+        return render_template("index.html", error_message=f"Processing error: {e}")
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5001))    
+    port = int(os.environ.get("PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=True)
-
