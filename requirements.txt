@@ -2,3 +2,4 @@ flask
 openpyxl
 google-generativeai
 pandas
+PyPDF2
