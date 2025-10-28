@@ -10,8 +10,8 @@ from datetime import datetime
 import logging
 import io
 
-genai.configure(api_key="AIzaSyBtDDwp31dKN7yDv-yRJOiONBtWXjw9XSU") 
-model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20")
+genai.configure(api_key="AIzaSyDyI7ihTGRkU8x5v3XoBtDv7nwzNW0vgGk") 
+model = genai.GenerativeModel("gemini-2.0-flash")
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
